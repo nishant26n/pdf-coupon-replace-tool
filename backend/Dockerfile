@@ -14,18 +14,27 @@ FROM node:20-slim
 RUN echo "ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true" \
       | debconf-set-selections
 
-# Install LibreOffice (required for PDF <-> DOCX conversion) plus the
-# metric-compatible fonts that match what Windows hosts ship with. These
-# fonts are essential: when LibreOffice converts PDF -> DOCX -> PDF on a
-# host that lacks Arial / Calibri / Cambria, glyph widths drop to a
-# fallback (Liberation / DejaVu) and frame positions shift, producing
-# extra blank space on the left and re-flowed lines compared to local.
+# Enable Debian `contrib` (where `ttf-mscorefonts-installer` lives).
+# node:20-slim uses the deb822 sources format at
+# /etc/apt/sources.list.d/debian.sources; add a contrib component line
+# either way to handle both layouts.
+RUN if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+      sed -i 's|^Components: main$|Components: main contrib non-free non-free-firmware|' \
+        /etc/apt/sources.list.d/debian.sources; \
+    else \
+      echo "deb http://deb.debian.org/debian bookworm main contrib non-free" \
+        > /etc/apt/sources.list.d/contrib.list; \
+    fi
+
+# Install LibreOffice + metric-compatible fonts that match what Windows
+# hosts ship with. Without these, LibreOffice falls back to Liberation /
+# DejaVu when re-rendering DOCX -> PDF, glyph widths shift, and the
+# output has extra blank space on the left.
 #
-#   fonts-crosextra-carlito         metric-identical drop-in for Calibri
-#   fonts-crosextra-caladea         metric-identical drop-in for Cambria
-#   ttf-mscorefonts-installer       real Arial / Times New Roman / Courier New / Verdana / Georgia
-#   fonts-liberation                metric-compatible Arial / Times / Courier (fallback)
-#   fonts-dejavu-core, fonts-noto-core   broad coverage for the rest
+#   fonts-crosextra-carlito        metric-identical drop-in for Calibri
+#   fonts-crosextra-caladea        metric-identical drop-in for Cambria
+#   fonts-liberation               metric-compatible Arial / Times / Courier
+#   fonts-dejavu-core, fonts-noto-core    broad coverage
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       libreoffice \
@@ -35,10 +44,21 @@ RUN apt-get update && \
       fonts-noto-core \
       fonts-crosextra-carlito \
       fonts-crosextra-caladea \
-      ttf-mscorefonts-installer \
-      ca-certificates \
-    && fc-cache -f \
-    && rm -rf /var/lib/apt/lists/*
+      ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+# Try to install MS Core Fonts (real Arial / Times New Roman / Courier
+# New / Verdana / Georgia). The installer downloads from SourceForge at
+# build time and that mirror is occasionally unavailable, so we run this
+# in its own layer with `|| true` — a build with the metric-compatible
+# substitutes above is still correct, just one notch less faithful.
+RUN apt-get update && \
+    (apt-get install -y --no-install-recommends ttf-mscorefonts-installer || \
+       echo "WARN: ttf-mscorefonts-installer failed; continuing with carlito/caladea/liberation") && \
+    rm -rf /var/lib/apt/lists/*
+
+# Refresh font cache once at the end so LibreOffice sees every font.
+RUN fc-cache -f
 
 WORKDIR /app
 
