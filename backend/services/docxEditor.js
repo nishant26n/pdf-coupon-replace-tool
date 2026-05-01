@@ -48,28 +48,60 @@ function escapeRegex(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-// Set every <w:sectPr><w:pgMar/> to all-zero so the rendered PDF has no
-// extra page padding around the imported content.
-function zeroPageMargins(doc) {
+// 1 twip (Word's page-margin unit) = 635 EMU (drawing-position unit).
+function twipsToEmu(twips) {
+  return Math.round(twips * 635);
+}
+
+// LibreOffice's PDF importer adds default page margins to every section.
+// The visible result is extra blank space on the top and left of the
+// re-rendered PDF compared to the source.
+//
+// The previous fix zeroed all four `<w:pgMar>` values, but on hosts
+// where font substitution changes content height (e.g. our Render
+// container vs the local Windows machine), expanding the printable area
+// to the full page caused multi-page documents to collapse — the
+// anchor paragraph for page 2 fell back onto page 1, so its drawings
+// rendered on top of page 1's drawings.
+//
+// Instead we leave margins alone (page-break logic untouched) and shift
+// every `<wp:positionH>` / `<wp:positionV>` `<wp:posOffset>` by minus
+// the section's left/top margin. The drawings move to the page corner,
+// which removes the visible blank space, and no two-page document is
+// re-flowed.
+function shiftDrawingsToCornerPerSection(doc) {
+  // A document with one section is the common case for our PDFs, so we
+  // use the first section's pgMar for every drawing. (Multi-section
+  // imports are rare here.)
   const sectPrs = doc.getElementsByTagNameNS(W_NS, "sectPr");
-  for (let i = 0; i < sectPrs.length; i++) {
-    const sp = sectPrs[i];
-    let pgMar = sp.getElementsByTagNameNS(W_NS, "pgMar")[0];
-    if (!pgMar) {
-      pgMar = doc.createElementNS(W_NS, "w:pgMar");
-      sp.appendChild(pgMar);
-    }
-    for (const k of [
-      "top",
-      "right",
-      "bottom",
-      "left",
-      "header",
-      "footer",
-      "gutter",
-    ]) {
-      pgMar.setAttribute(`w:${k}`, "0");
-    }
+  if (sectPrs.length === 0) return;
+  const pgMar = sectPrs[0].getElementsByTagNameNS(W_NS, "pgMar")[0];
+  if (!pgMar) return;
+  const leftEmu = twipsToEmu(parseInt(pgMar.getAttribute("w:left") || "0", 10));
+  const topEmu = twipsToEmu(parseInt(pgMar.getAttribute("w:top") || "0", 10));
+  if (leftEmu === 0 && topEmu === 0) return;
+
+  const drawings = doc.getElementsByTagNameNS(W_NS, "drawing");
+  for (let i = 0; i < drawings.length; i++) {
+    const d = drawings[i];
+    shiftPosOffset(d, "positionH", leftEmu);
+    shiftPosOffset(d, "positionV", topEmu);
+  }
+}
+
+function shiftPosOffset(drawingEl, positionTag, deltaEmu) {
+  if (!deltaEmu) return;
+  const positions = drawingEl.getElementsByTagNameNS(WP_NS, positionTag);
+  for (let i = 0; i < positions.length; i++) {
+    const pos = positions[i];
+    const offsetEl = pos.getElementsByTagNameNS(WP_NS, "posOffset")[0];
+    if (!offsetEl) continue;
+    const current = parseInt(offsetEl.firstChild?.nodeValue || "0", 10);
+    const next = Math.max(current - deltaEmu, 0);
+    while (offsetEl.firstChild) offsetEl.removeChild(offsetEl.firstChild);
+    offsetEl.appendChild(
+      drawingEl.ownerDocument.createTextNode(String(next))
+    );
   }
 }
 
@@ -283,13 +315,11 @@ export function replaceInDocx(docxBuffer, rawMapping) {
     expandFrame(drawing, ratio);
   }
 
-  // Strip the page margins LibreOffice's PDF importer inserts. Without
-  // this, every section is given default Word margins (~1 cm top/left,
-  // sometimes more) and the re-rendered PDF has visible blank space on
-  // the left and top compared to the original. Drawings are positioned
-  // with relativeFrom="column", so they shift left/up by the same amount
-  // we trim — landing back at their original PDF page coordinates.
-  zeroPageMargins(doc);
+  // Pull every drawing toward the top-left corner by the section's
+  // left/top margin. Removes the blank space LibreOffice adds on
+  // import without changing the printable page area, so multi-page
+  // documents keep their original page-break placement.
+  shiftDrawingsToCornerPerSection(doc);
 
   stats.matchedCodes = matched.size;
   stats.unmatched = codes.filter((c) => !matched.has(c)).sort();
