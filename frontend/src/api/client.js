@@ -1,12 +1,11 @@
 // Strip trailing slash so VITE_API_BASE="https://example.com/" still works correctly
 const API_BASE = (import.meta.env.VITE_API_BASE || "http://localhost:8000").replace(/\/$/, "");
 
-export async function processFiles(excelFile, pdfFile) {
+export async function processBulk(files) {
   const fd = new FormData();
-  fd.append("excel_file", excelFile);
-  fd.append("pdf_file", pdfFile);
+  for (const f of files) fd.append("pdf_files", f);
 
-  const res = await fetch(`${API_BASE}/process-files`, {
+  const res = await fetch(`${API_BASE}/process-bulk`, {
     method: "POST",
     body: fd,
   });
@@ -18,24 +17,19 @@ export async function processFiles(excelFile, pdfFile) {
       if (body.error) msg = body.error;
       else if (body.detail) msg = body.detail;
     } catch {
-      // ignore
+      // body wasn't JSON; fall through with HTTP status
     }
     throw new Error(msg);
   }
 
-  const blob = await res.blob();
   return {
-    blob,
-    replacements: Number(res.headers.get("X-Replacements") || 0),
-    matchedCodes: Number(res.headers.get("X-Matched-Codes") || 0),
-    unmatched: (res.headers.get("X-Unmatched") || "")
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean),
+    blob: await res.blob(),
+    processed: Number(res.headers.get("X-Processed") || 0),
+    skipped: Number(res.headers.get("X-Skipped") || 0),
   };
 }
 
-export function downloadBlob(blob, filename = "processed.pdf") {
+export function downloadBlob(blob, filename = "processed_pdfs.zip") {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;

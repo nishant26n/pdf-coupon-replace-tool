@@ -1,38 +1,38 @@
 import { useState } from "react";
-import FileDropzone from "./components/FileDropzone.jsx";
+import MultiPdfDropzone from "./components/MultiPdfDropzone.jsx";
 import ProcessButton from "./components/ProcessButton.jsx";
 import StatusBanner from "./components/StatusBanner.jsx";
 import ProgressBar from "./components/ProgressBar.jsx";
-import { processFiles, downloadBlob } from "./api/client.js";
+import { processBulk, downloadBlob } from "./api/client.js";
 
 const MAX_SIZE = 10 * 1024 * 1024;
+const MAX_FILES = 50;
 
 export default function App() {
-  const [excelFile, setExcelFile] = useState(null);
-  const [pdfFile, setPdfFile] = useState(null);
+  const [files, setFiles] = useState([]);
   const [status, setStatus] = useState("idle");
   const [banner, setBanner] = useState({ title: "", message: "", details: [] });
 
-  const canSubmit = excelFile && pdfFile && status !== "loading";
+  const canSubmit = files.length > 0 && status !== "loading";
 
   async function handleSubmit() {
     setStatus("loading");
     setBanner({
-      title: "Processing files...",
-      message: "Replacing coupon codes in your PDF.",
+      title: `Processing ${files.length} file${files.length === 1 ? "" : "s"}...`,
+      message:
+        "Each PDF is converted to DOCX, the coupon code is swapped for the name, and re-rendered to PDF.",
       details: [],
     });
     try {
-      const result = await processFiles(excelFile, pdfFile);
-      downloadBlob(result.blob, "processed.pdf");
+      const result = await processBulk(files);
+      downloadBlob(result.blob, "processed_pdfs.zip");
       setStatus("success");
       setBanner({
-        title: "Done — downloaded processed.pdf",
-        message: `${result.replacements} replacement${result.replacements === 1 ? "" : "s"} across ${result.matchedCodes} matched code${result.matchedCodes === 1 ? "" : "s"}.`,
-        details:
-          result.unmatched.length > 0
-            ? [`Unmatched codes: ${result.unmatched.join(", ")}`]
-            : [],
+        title: "Done — downloaded processed_pdfs.zip",
+        message: `${result.processed} processed${
+          result.skipped ? `, ${result.skipped} skipped (see summary.json in the zip)` : ""
+        }.`,
+        details: [],
       });
     } catch (err) {
       setStatus("error");
@@ -41,43 +41,30 @@ export default function App() {
   }
 
   function handleReset() {
-    setExcelFile(null);
-    setPdfFile(null);
+    setFiles([]);
     setStatus("idle");
     setBanner({ title: "", message: "", details: [] });
   }
 
   return (
     <div className="min-h-screen flex items-center justify-center p-6">
-      <div className="w-full max-w-xl bg-white rounded-2xl shadow-sm border border-slate-200 p-8">
+      <div className="w-full max-w-2xl bg-white rounded-2xl shadow-sm border border-slate-200 p-8">
         <header className="mb-6">
           <h1 className="text-2xl font-semibold text-slate-900">
-            PDF Coupon Replacer
+            PDF Coupon Replacer — Bulk
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Upload an Excel file and a PDF — coupon codes in the PDF are replaced
-            with the matching names.
+            Drop in PDFs named <code>{"{couponCode}_{name}.pdf"}</code>. Each file is
+            processed and the results are zipped for download.
           </p>
         </header>
 
         <div className="space-y-5">
-          <FileDropzone
-            label="Excel file (.xlsx)"
-            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            acceptExt={[".xlsx"]}
-            file={excelFile}
-            onFile={setExcelFile}
+          <MultiPdfDropzone
+            files={files}
+            onChange={setFiles}
             maxSize={MAX_SIZE}
-            disabled={status === "loading"}
-          />
-
-          <FileDropzone
-            label="PDF file"
-            accept=".pdf,application/pdf"
-            acceptExt={[".pdf"]}
-            file={pdfFile}
-            onFile={setPdfFile}
-            maxSize={MAX_SIZE}
+            maxFiles={MAX_FILES}
             disabled={status === "loading"}
           />
 

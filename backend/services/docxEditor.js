@@ -48,6 +48,31 @@ function escapeRegex(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+// Set every <w:sectPr><w:pgMar/> to all-zero so the rendered PDF has no
+// extra page padding around the imported content.
+function zeroPageMargins(doc) {
+  const sectPrs = doc.getElementsByTagNameNS(W_NS, "sectPr");
+  for (let i = 0; i < sectPrs.length; i++) {
+    const sp = sectPrs[i];
+    let pgMar = sp.getElementsByTagNameNS(W_NS, "pgMar")[0];
+    if (!pgMar) {
+      pgMar = doc.createElementNS(W_NS, "w:pgMar");
+      sp.appendChild(pgMar);
+    }
+    for (const k of [
+      "top",
+      "right",
+      "bottom",
+      "left",
+      "header",
+      "footer",
+      "gutter",
+    ]) {
+      pgMar.setAttribute(`w:${k}`, "0");
+    }
+  }
+}
+
 function buildPattern(codes) {
   const ordered = [...codes].sort((a, b) => b.length - a.length);
   return new RegExp(`\\b(${ordered.map(escapeRegex).join("|")})\\b`, "g");
@@ -257,6 +282,14 @@ export function replaceInDocx(docxBuffer, rawMapping) {
   for (const [drawing, ratio] of frameRatios) {
     expandFrame(drawing, ratio);
   }
+
+  // Strip the page margins LibreOffice's PDF importer inserts. Without
+  // this, every section is given default Word margins (~1 cm top/left,
+  // sometimes more) and the re-rendered PDF has visible blank space on
+  // the left and top compared to the original. Drawings are positioned
+  // with relativeFrom="column", so they shift left/up by the same amount
+  // we trim — landing back at their original PDF page coordinates.
+  zeroPageMargins(doc);
 
   stats.matchedCodes = matched.size;
   stats.unmatched = codes.filter((c) => !matched.has(c)).sort();

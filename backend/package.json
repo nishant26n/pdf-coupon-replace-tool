@@ -9,10 +9,10 @@
   },
   "dependencies": {
     "@xmldom/xmldom": "^0.9.5",
+    "archiver": "^7.0.1",
     "cors": "^2.8.5",
     "express": "^4.21.1",
     "multer": "^2.0.1",
-    "pizzip": "^3.1.7",
-    "xlsx": "^0.18.5"
+    "pizzip": "^3.1.7"
   }
 }

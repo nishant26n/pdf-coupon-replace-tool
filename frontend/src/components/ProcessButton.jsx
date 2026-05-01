@@ -33,7 +33,7 @@ export default function ProcessButton({ onClick, disabled, loading }) {
           />
         </svg>
       )}
-      {loading ? "Processing..." : "Process Files"}
+      {loading ? "Processing..." : "Process & download ZIP"}
     </button>
   );
 }
