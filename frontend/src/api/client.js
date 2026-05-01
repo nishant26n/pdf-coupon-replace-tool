@@ -1,4 +1,5 @@
-const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
+// Strip trailing slash so VITE_API_BASE="https://example.com/" still works correctly
+const API_BASE = (import.meta.env.VITE_API_BASE || "http://localhost:8000").replace(/\/$/, "");
 
 export async function processFiles(excelFile, pdfFile) {
   const fd = new FormData();
